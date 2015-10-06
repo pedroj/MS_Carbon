@@ -1,0 +1,257 @@
+---
+title: "Defaunation impacts carbon storage in tropical forests"
+author: "Carolina Bello, Mauro Galetti, Marco A. Pizo, Luiz Fernando S. Magnago, Mariana Ferreira Rocha , Renato A. F. Lima, Carlos A. Peres, Otso Ovaskainen, and Pedro Jordano"
+date: "Thursday, July 23, 2015"
+output: html_document
+---
+### SIMULATION CODE
+
+This is the code for the defaunation simulations function `simulation7porcA` with one example community of the Atlantic Forest. The aim is to see how carbon stock will change  in the defaunated scenario (loss of tree species with seed size >= 12.0 mm +/-1.1mm) and, in the random extinction scenario (i.e., tree species removal independent of seed size). 
+
+The imputs are the community data  merged with the trait data `prove_community.csv` and,  with the initial cabon `carbon_proxi` already calculated
+
+The code  presents the function, explaining each step. Then, we apply it  to the community data  (here we use just one community  but it can be applied to the 31 communities in the same way). Finally  the code produces a diagnostic plot of the carbon balance .  
+
+### Input data
+```{r Imput data, echo=27:38, warning=FALSE}
+library(plyr)
+library(ggplot2)
+
+#### 0. Load Data
+
+# Community Data
+x=read.csv("prove_community2.csv",na.strings = "NA",stringsAsFactors =F)
+
+```
+
+### Simulation function 
+Imputs: x=Data of the communities. 
+c="Carbonproxi"
+This function selected endangered species to be removed and then  selects species to replace them. Then, it merge the defaunated community with the new replaced community.
+
+The prodecure is repeated   for created the random community.
+
+Finally the function calculated the diference between the inicial carbon and the new comunity carbon.
+
+It does 1000 repetitions for each percentage 10,20...100%.
+
+```{r simulation function}
+
+simulation7porcA=function(x,Carbon.name="Carbonproxi"){
+  
+  c=which(names(x)==Carbon.name)
+  #remove sp whitout data
+  x=x[-which(is.na(x[,c])),]
+  
+  noN=which(x$N==0) 
+  if (length(noN)>0){x=x[-noN,]}
+  
+  #inicial carbon
+  carbon=sum(x[,c])
+  
+  #assing weigths 
+  #for the replacements " more abundance  spp has more probability to enter in the replacement game"
+  maxN=max(x$N)
+  minN=min(x$N)
+  
+  x$wN=(x$N-minN)/(maxN-minN)
+  
+  #weigths  for extinction, "larger seed species has more probability to go extinct "
+  maxseed=max(x$seeddiam,na.rm=T)
+  minseed=min(x$seeddiam,na.rm=T)
+  
+  x$wseed=(x$seeddiam-minseed)/(maxseed-minseed)
+  x$wseed[which(is.na(x$wseed))]=0
+  
+  x$nabw=x$AB/sum(x$AB)
+  
+  # generated interval to set endangered ( 12mm +/- 1.1mm ) 
+  interval=round(runif(100, 11,13),3)
+  
+  #define porcentage of defauantion
+  porc=c(10,20,30,40,50,60,70,80,90,100)
+  
+  #set empty  objects  to fill in the simulation
+  sim3=NULL
+  
+  
+  #select species to remove from 10% to 100% of the number of endangered species in each community
+  for (i in porc){# i number of sps to remove , max remove 100% of endangered sps
+    
+    sim4=NULL 
+ 
+    #For each  number of species to remove we made 1000 simulations
+    
+    for (j in 1:1000){
+      #identify endangered zoochoric species at a given value of the interval (seed diameter= 12mm +/- 1.1mm) 
+      
+      limit=sample(interval,1)
+      endangered=which(x$sindr=="zoochoric"& x$seeddiam>=limit)
+      maxdanger=length(endangered)
+      npor=ceiling((maxdanger*i)/100)
+      print(paste0(npor,"/",maxdanger,"=",i,"%",limit,unique(x$SiteCode)))
+      
+      all.sp=1:nrow(x)
+      
+      weightout=x$wseed[endangered]
+      
+      #select sps to remove in defanated scenario and in random scenario
+      random=sample(all.sp,npor)
+      if (length(endangered)==1){defaunated=endangered}else{
+        defaunated=sample(endangered,npor,prob=weightout)}
+
+      
+      #created community to replace  erase extinct species
+      x.replace=all.sp[-defaunated]
+      
+      # weights to replace more abundant specie has higher probability to replace
+      weight=x$wN[x.replace]*(1-x$wseed[x.replace])
+      # we will replace the same number of ind/ha (DA). and basal area (DoA) from the remain community 
+      nind=ceiling(sum(x$DA[defaunated]))
+      nAB=sum(x$DoA[defaunated])
+      ABprom=nAB/nind
+      
+      #replace community in defaunates scenario
+      # we select indivuals from the remain community
+      
+      x.replace2=sample(x.replace,nind,prob=weight,replace=TRUE) 
+      replace.data=as.data.frame(table(x.replace2))
+      y=unique(x.replace2)
+      y=y[order(y)]
+      
+      
+      newdata=x[y,]
+      # assing the number of ind  and DoA selected for each sp
+      newdata$DA=replace.data[,2]
+      newdata$nabw=newdata$AB/sum(newdata$AB)
+      newdata$DoA=nAB*newdata$nabw
+
+      
+      
+      # calculate Biomass by carbon proxi equation wood x DAP x max height  
+      newdata$biomassproxi= exp(-0.679288+(0.967049*(log(newdata$DoA*newdata$wooden*newdata$Tre.size.max))))
+     
+      # calculate carbon 
+      newdata$Carbonproxi=(0.60*newdata$biomassproxi)*0.48
+      
+      #create a unique communitY  AFTER  defaunation extinction
+      comu.defaunated=x[-defaunated,]
+      comu.defaunated=rbind(comu.defaunated,newdata)
+      length(unique(comu.defaunated$search.str))
+      
+      
+      ######CONSTRUCT RANDOM COMMUNITY
+      
+      nindA=ceiling(sum(x$DA[random]))
+      nABA=sum(x$DoA[random])
+      ABpromA=nABA/nindA
+      
+      #replace community in random scenario
+      # we select indivuals from the replace community
+      if (length(which(all.sp %in% random))!=0){
+        x.replaceA=all.sp[-which(all.sp %in% random)]
+      }else{x.replaceA=all.sp[-random]}
+      
+  
+      weightA=x$wN[x.replaceA]
+      # Select nindA =ind of the remaning community  acording to their abundance
+      x.replace2A=sample(x=x.replaceA,size=nindA,prob=weightA,replace=TRUE) 
+      
+      replace.dataA=as.data.frame(table(x.replace2A))
+      yA=unique(x.replace2A)
+      yA=yA[order(yA)]
+      
+      # Generate subset of replacement species
+      newdataA=x[yA,]
+      newdataA$DA=replace.dataA[,2]
+      newdataA$nabw=newdataA$AB/sum(newdataA$AB)
+      newdataA$DoA=nABA*newdataA$nabw
+ 
+      
+      
+      # calculate Biomass by proxi relation wood x DAP in ton
+      # I tried DAP and AB and DAP  was clouser to Chaves estimations
+      
+     
+      newdataA$biomassproxi=exp(-0.679288+(0.967049*(log(newdataA$DoA*newdataA$wooden*newdataA$Tre.size.max))))
+
+#       # calculate carbon 
+      newdataA$Carbonproxi=(0.583*newdataA$biomassproxi)*0.485
+      
+      
+      #create a unique community  AFTER random extinction
+      comu.random=x[-random,]
+      comu.random=rbind(comu.random,newdataA)
+      length(unique(comu.random$search.str))
+      
+      
+      ####  carbon in new communities (ton/ha)
+      carbon.random=sum(comu.random[,c])
+      carbon.defaunated=sum(comu.defaunated[,c])
+      
+      
+      #### Find the diference in  carbon respect to the initial community
+      random.loss=((carbon.random-carbon))
+      defaunated.loss=((carbon.defaunated- carbon))
+      
+      # Find the carbon diference  between defanated and random scenarios
+      diference=(carbon.random-carbon.defaunated)#/carbon.random)*100
+      
+       
+      result.carbon=cbind(i,npor,carbon, carbon.random,carbon.defaunated,random.loss,defaunated.loss,diference)
+      
+      sim4=rbind(sim4,result.carbon)
+      
+    }
+    sim3=rbind(sim3,colMeans(sim4))
+
+  }
+  
+  return(sim3)
+  
+}
+```
+
+### Apply the function for the community data
+
+```{r apply simultaion, results='hide',message=F,warning=FALSE}
+# coerce to list structure
+
+abundance.list=split(x, x$SiteCode)
+
+#apply the function
+
+simulacionesproxi3_1000=laply(abundance.list, simulation7porcA, Carbon.name="Carbonproxi")
+```
+
+
+###  Diagnostic plot
+Trajectory of the dafaunated scenario (red) and random scenario( blue).
+```{r Diagnostic plot, echo=FALSE}
+results.carbon2=as.data.frame(simulacionesproxi3_1000)
+
+randomdata2=results.carbon2[,c(1:3,4,6,8)]#
+defaudata2=results.carbon2[,c(1:3,5,7,8)]#
+
+names(randomdata2)=names(defaudata2)=c("i","npor","carbono0","carbon1", "loss","diference")
+simdata2=rbind(randomdata2, defaudata2)
+simdata2$type=c(rep("random",nrow(randomdata2)),rep("defaunated",nrow(defaudata2)))
+
+
+theme_set(theme_minimal(base_size=14))
+colorpicks=c("firebrick2","steelblue")
+
+#carbon balance
+simdata2$.id=names(abundance.list)
+simdata2$to=paste0(simdata2$.id, "_", simdata2$type)
+f=ggplot(simdata2,aes(x=i,y=loss, fill=type))
+f+geom_line(aes(group=to,colour=type))+
+  geom_smooth( method="glm", colour="black",size=1)+
+  geom_hline(yintercept=0, linetype="longdash")+
+    scale_fill_manual(values=colorpicks)+
+    scale_colour_manual(values=colorpicks)+
+    theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),axis.line = element_line(colour="black"),panel.border=element_blank())+
+    labs(x="Percentaje of Endangered species removed",
+         y="Carbon balance (Mg/ha)")
+```
+
