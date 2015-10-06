@@ -2,6 +2,8 @@
 Supplemental information, code, and data for the MS: 
 Carolina Bello, Mauro Galetti, Marco A. Pizo, Luiz Fernando S. Magnago, Mariana Ferreira Rocha , Renato A. F. Lima, Carlos A. Peres, Otso Ovaskainen, and Pedro Jordano (2015). Defaunation impacts carbon storage in tropical forests.
 
+[![DOI](https://zenodo.org/badge/doi/10.5281/zenodo.31880.svg)](http://dx.doi.org/10.5281/zenodo.31880)
+
 ![](./images/fig_1.png)
 
 *Summary*:
